@@ -2,51 +2,63 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'us-west-1'  // Update with your region
-        ECR_REPOSITORY = 'chandu/my-docker-repo' // Update ECR Repo
-        IMAGE_TAG = "latest"
-        S3_BUCKET = "my-output-bucket" // Update with your S3 bucket name
+        AWS_REGION = 'us-west-1'
+        ECR_REPO = '116981807202.dkr.ecr.us-west-1.amazonaws.com/chandu/my-docker-repo'
+        S3_BUCKET = 'my-artifacts-webapp'
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('Clone Repository') {
             steps {
-               git branch: 'main', url: 'https://github.com/PolojuPoornachandar/Docker-Zero-to-Hero/examples/first-docker-file/.git/'
+                script {
+                    echo 'Cloning the repository...'
+                    sh 'rm -rf Docker-Zero-to-Hero'
+                    sh 'git clone --depth 1 --filter=blob:none --sparse https://github.com/PolojuPoornachandar/Docker-Zero-to-Hero.git'
+                    sh 'cd Docker-Zero-to-Hero && git sparse-checkout init --cone'
+                    sh 'cd Docker-Zero-to-Hero && git sparse-checkout set examples/first-docker-file'
+                    echo 'Repository cloned successfully!'
+                }
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    sh 'docker build -t $ECR_REPOSITORY:$IMAGE_TAG examples/'
+                    echo 'Building Docker image...'
+                    sh '''
+                        cd Docker-Zero-to-Hero/examples/first-docker-file
+                        docker build -t my-first-docker-image .
+                    '''
+                    echo 'Docker image built successfully!'
                 }
             }
         }
 
-        stage('Push to ECR') {
+        stage('Run Docker Container & Capture Output') {
             steps {
                 script {
-                    sh """
-                        aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin 116981807202.dkr.ecr.$AWS_REGION.amazonaws.com
-                        docker tag $ECR_REPOSITORY:$IMAGE_TAG 116981807202.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
-                        docker push 116981807202.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
-                    """
+                    echo 'Running Docker container and capturing output...'
+                    sh '''
+                        cd Docker-Zero-to-Hero/examples/first-docker-file
+                        # Run the Docker container and redirect the output of app.py to hello-world.txt
+                        docker run --rm my-first-docker-image > hello-world.txt
+                        cat hello-world.txt  # Print the output to verify content
+                    '''
+                    echo 'Docker container ran successfully and output captured!'
                 }
             }
         }
 
-        stage('Run Docker Container') {
+        stage('Push Docker Image to ECR') {
             steps {
                 script {
-                    sh 'docker run --name my-container -d $ECR_REPOSITORY:$IMAGE_TAG'
-                }
-            }
-        }
-
-        stage('Test Application & Capture Output') {
-            steps {
-                script {
-                    sh 'docker logs my-container > hello-world.txt'
+                    echo 'Pushing Docker image to ECR...'
+                    sh '''
+                        aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
+                        docker tag my-first-docker-image:latest $ECR_REPO:latest
+                        docker push $ECR_REPO:latest
+                    '''
+                    echo 'Docker image pushed to ECR successfully!'
                 }
             }
         }
@@ -54,7 +66,19 @@ pipeline {
         stage('Upload Output to S3') {
             steps {
                 script {
-                    sh 'aws s3 cp hello-world.txt s3://$S3_BUCKET/'
+                    echo 'Uploading output to S3...'
+                    sh '''
+                        # Check if the file exists before uploading
+                        if [ -f hello-world.txt ]; then
+                            echo 'File exists, uploading to S3...'
+                            aws s3 cp hello-world.txt s3://$S3_BUCKET/hello-world.txt --acl public-read
+                            aws s3 ls s3://$S3_BUCKET/hello-world.txt
+                        else
+                            echo 'hello-world.txt file does not exist!'
+                            exit 1
+                        fi
+                    '''
+                    echo 'Output uploaded to S3 successfully!'
                 }
             }
         }
@@ -65,7 +89,9 @@ pipeline {
             echo "Pipeline executed successfully!"
         }
         failure {
-            echo "Pipeline failed! Check logs."
+            echo "Pipeline failed!"
+            echo "Check the logs for more details on the failure!"
         }
     }
 }
+
