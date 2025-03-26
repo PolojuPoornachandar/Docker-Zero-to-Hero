@@ -11,7 +11,7 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
-                git 'https://github.com/PolojuPoornachandar/Docker-Zero-to-Hero.git'
+                https://github.com/PolojuPoornachandar/Docker-Zero-to-Hero/examples/first-docker-file/.git/'
             }
         }
 
